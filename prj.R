@@ -206,7 +206,23 @@ plot_correlation_matrix(flight_data)
 # ----------------------------
 ## 5.1 Linear Regression Model
 # Train model
-lm_model <- lm(log_price ~ ., data = train_data)
+lm_model <- lm(log_price ~ airline + source_city + destination_city + departure_time + arrival_time + class + duration + days_left + stops, data = train_data)
+summary(lm_model)
+
+# Make predictions and evaluate
+predictions <- predict(lm_model, newdata = test_data)
+mse <- mean((test_data$log_price - predictions)^2)
+
+# Print evaluation metrics
+cat("Baseline Model Performance:\n")
+cat("--------------------------\n")
+cat("Mean Squared Error:", mse, "\n")
+cat("Root Mean Squared Error:", sqrt(mse), "\n")
+cat("R-squared:", summary(lm_model)$r.squared, "\n")
+cat("Adjusted R-squared:", summary(lm_model)$adj.r.squared, "\n")
+
+# Exlucde Stops
+lm_model <- lm(log_price ~ airline + source_city + destination_city + departure_time + arrival_time + class + duration + days_left, data = train_data)
 summary(lm_model)
 
 # Make predictions and evaluate
