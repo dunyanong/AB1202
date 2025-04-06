@@ -95,6 +95,69 @@ test_data <- flight_data[-train_index, ]
 # ----------------------------
 # 4. Exploratory Data Analysis (EDA)
 # ----------------------------
+#Null Hypothesis Testing (Class)
+#Let µ0: Business Class
+#Let µ1: Economy Class
+#Null Hypothesis: H0 => µ0 = µ1
+
+t.test(price ~ class, data = flight_data)
+
+#p-value --> < 2.2e-16, so H0 can be rejected 
+
+#Comparing Night-Flights and Day-Flights | Comparing Stops and Non-Stops
+#Null Hypothesis Testing
+#Let µ0: Day-Flights
+#Let µ1 : Night-flights
+
+flight_data_night_day_vers <- flight_data
+# Add two binary variables (Day/Night) and (Non-stop/stop)
+flight_data_night_day_vers$time_of_day <- ifelse(flight_data$departure_time %in% c("Morning", "Afternoon", "Evening"),
+                                                 "Day", "Night")
+flight_data_night_day_vers$time_of_day <- factor(flight_data_night_day_vers$time_of_day, levels = c("Day", "Night"))
+levels(flight_data_night_day_vers$time_of_day) #Day / "Night"
+t.test(price ~ time_of_day, data = flight_data_night_day_vers, alternative="greater")
+#p_value = 0.002357, so it seems that day flights are cheaper than night flights
+
+with_stop_data <- flight_data %>%
+  filter(stops %in% c("one", "two_or_more"))
+
+long_flights <- with_stop_data %>%
+  filter(duration >= 32, duration <= 40)
+
+table(long_flights$stops)
+
+t.test(price ~ stops, data = long_flights, alternative="less") #Not enough interesting
+#Maybe, just quote it as a try but not answer due to not statically significant
+
+summary(lm(price ~ stops + duration, data = with_stop_data))
+
+#Holding flight duration constant, flights with multiple stops are statistically 
+#significantly cheaper than those with a single stop (−$10,743 on average, p < 0.001), 
+#indicating that this difference is highly unlikely to be due to random chance.
+#However, needs to say that our R-squared is very low, so we can't explain only
+#by this model, but show the impact of a stop or not (at same duration, one stop is 
+#cheaper than two or more)
+
+#Comparing between Airplane airlines (with same duration)
+
+two_airlines <- flight_data %>%
+  filter(airline %in% c("Air_India", "Vistara"))
+
+airlines_similar_duration <- two_airlines %>%
+  filter(duration >= 2, duration <= 3)
+
+table(airlines_similar_duration$airline)
+
+airlines_similar_duration$airline <- factor(airlines_similar_duration$airline, levels = c("Vistara", "Air_India"))
+
+t.test(price ~ airline, data = airlines_similar_duration, alternative = "greater")
+#p-value <- 0.001841
+
+#For comparable durations (between 2 and 3 hours), flights operated by Vistara are 
+#statistically more expensive than those operated by Air India, with an average 
+#price difference of €3,631. This difference is statistically significant (p = 0.0018).
+
+
 ## 4.1 Price Distribution Analysis
 plot_price_distribution <- function(data) {
   # Histogram
@@ -157,4 +220,3 @@ cat("Mean Squared Error:", mse, "\n")
 cat("Root Mean Squared Error:", sqrt(mse), "\n")
 cat("R-squared:", summary(lm_model)$r.squared, "\n")
 cat("Adjusted R-squared:", summary(lm_model)$adj.r.squared, "\n")
-
