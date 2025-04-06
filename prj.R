@@ -1,119 +1,276 @@
-install.packages("ggplot2")
-install.packages("dplyr")
-install.packages("corrplot") #this n above for visualize
-install.packages("caret")
+# ----------------------------
+# 0. Package Installation & Setup
+# ----------------------------
+# Install required packages (only needed once)
+install.packages(c("ggplot2", "dplyr", "corrplot", "caret", "lattice"))
 
-# 1 load the file and look the data
-data <- read.csv(file.choose(), header = TRUE, stringsAsFactors = FALSE)
-View(data)
-str(data)
-summary(data)
-colSums(is.na(data))
+# Load all required libraries
+library(ggplot2)    # For data visualization
+library(dplyr)      # For data manipulation
+library(corrplot)   # For correlation visualization
+library(caret)      # For machine learning utilities
+library(lattice)    # For statistical graphics
 
-# 2 how many type under a column, the amount of each type
-string_cols <- names(data)[sapply(data, is.character)]
-result <- lapply(data[string_cols], table)
-df_list <- lapply(result, function(tbl) as.data.frame(tbl))
-
-df_combined <- do.call(rbind, lapply(names(df_list), function(name) {
-  df <- df_list[[name]]
-  df$variable <- name
-
-  names(df)[1:2] <- c("value", "frequency")
-  df <- df[, c("variable", "value", "frequency")]
-  df
-}))
-
-df_combined
-df_combined <- df_combined[df_combined$variable != "flight", ]
-df_combined
-
-# 3 Data preprocess
-library(caret)
+# Set random seed for reproducibility
 set.seed(123)
 
-data_ori <- data
-if("X" %in% names(data)) {
-  data <- data %>% select(-X)
+# ----------------------------
+# 1. Data Loading & Initial Inspection
+# ----------------------------
+# Load the dataset
+flight_data <- read.csv(file.choose(), header = TRUE, stringsAsFactors = FALSE)
+flight_data <- flight_data[sample(nrow(flight_data), 10000), ]
+flight_data <- flight_data[, !(names(flight_data) %in% "flight")]
+
+# Initial data inspection
+View(flight_data)
+str(flight_data)
+summary(flight_data)
+colSums(is.na(flight_data))
+
+# ----------------------------
+# 2. Categorical Variable Analysis
+# ----------------------------
+# Analyze frequency of categorical variables
+analyze_categorical_variables <- function(data) {
+  # Identify character columns
+  string_cols <- names(data)[sapply(data, is.character)]
+  
+  # Create frequency tables
+  freq_tables <- lapply(data[string_cols], table)
+  
+  # Convert to data frames and combine
+  df_list <- lapply(freq_tables, function(tbl) as.data.frame(tbl))
+  
+  combined_df <- do.call(rbind, lapply(names(df_list), function(name) {
+    df <- df_list[[name]]
+    df$variable <- name
+    names(df)[1:2] <- c("value", "frequency")
+    df[, c("variable", "value", "frequency")]
+  }))
+  
+  # Remove flight column if present
+  combined_df <- combined_df[combined_df$variable != "flight", ]
+  return(combined_df)
 }
-data <- data %>% mutate_if(is.character, as.factor)
-train_index <- createDataPartition(data$price, p = 0.7, list = FALSE)
-ln_train_data <- data[train_index, ]
-ln_test_data <- data[-train_index, ]
 
-# 4 EDA and visualization
+categorical_summary <- analyze_categorical_variables(flight_data)
+print(categorical_summary)
 
-library(ggplot2)
-library(dplyr)
-library(corrplot)
-
-  #price distribution
-price_distribution_histogram <- ggplot(data, aes(x = price)) +
-  geom_histogram(bins = 30, fill = "steelblue", color = "black") +
-  theme_minimal() +
-  labs(title = "price distribution", x = "ticket price", y = "frequency")
-price_distribution_boxplot <- ggplot(data, aes(y = price)) +
-  geom_boxplot(fill = "orange") +
-  theme_minimal() +
-  labs(title = "price distribution", y = "ticket price")
-  print(price_distribution_boxplot)
-  #corr and heatmap
-numeric_cols <- sapply(data, is.numeric)
-cor_data <- cor(data[, numeric_cols], use = "complete.obs")
-corrplot(cor_data, method = "circle", type = "upper", tl.col = "black", tl.srt = 45,
-         title = "corr of int type variable", mar = c(0,0,1,0))
- # if want further, normalize column data in str to plot corr
-
-# 5 baseline model
-
-ln_train_data$flight <- factor(as.character(ln_train_data$flight))
-if(!("Other" %in% levels(ln_train_data$flight))){
-  levels(ln_train_data$flight) <- c(levels(ln_train_data$flight), "Other")
+#Showing distribution of all categorical variables
+vars_to_plot <- c("class", "departure_time", "stops", "source_city", "destination_city")
+for (v in vars_to_plot) {
+  df_subset <- filter(categorical_summary, variable == v)
+  
+  p <- ggplot(df_subset, aes(x = reorder(value, -frequency), y = frequency, fill = value)) +
+    geom_bar(stat = "identity") +
+    labs(title = paste("Distribution of", v),
+         x = v,
+         y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    guides(fill = FALSE)
+  
+  print(p)
 }
-ln_test_data$flight <- as.character(ln_test_data$flight)
-allowed_levels <- levels(ln_train_data$flight)
-ln_test_data$flight[!(ln_test_data$flight %in% allowed_levels)] <- "Other"
-ln_test_data$flight <- factor(ln_test_data$flight, levels = allowed_levels)
 
-lm_model <- lm(price ~ ., data = ln_train_data)
+# ----------------------------
+# 3. Data Preprocessing
+# ----------------------------
+# Create backup of original data
+data_original <- flight_data
+
+# Remove unnecessary columns and convert types
+flight_data <- flight_data %>%
+  select(-X) %>%                       # Remove index column if exists
+  mutate_if(is.character, as.factor)   # Convert character columns to factors
+
+# Split data into training and testing sets
+train_index <- createDataPartition(flight_data$price, p = 0.7, list = FALSE)
+train_data <- flight_data[train_index, ]
+test_data <- flight_data[-train_index, ]
+
+# ----------------------------
+# 4. Exploratory Data Analysis (EDA)
+# ----------------------------
+## 4.1 Price Distribution Analysis
+plot_price_distribution <- function(data) {
+  # Histogram
+  hist_plot <- ggplot(data, aes(x = price)) +
+    geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+    theme_minimal() +
+    labs(title = "Flight Price Distribution", 
+         x = "Ticket Price (USD)", 
+         y = "Frequency")
+  
+  # Boxplot
+  box_plot <- ggplot(data, aes(y = price)) +
+    geom_boxplot(fill = "orange") +
+    theme_minimal() +
+    labs(title = "Price Distribution Overview", 
+         y = "Ticket Price (USD)")
+  
+  # Display plots
+  print(hist_plot)
+  print(box_plot)
+  
+  # Skewness (check if 'moments' is already installed before installing again)
+  if (!require(moments)) install.packages("moments", dependencies = TRUE)
+  library(moments)
+  
+  cat("Skewness of price distribution: ", skewness(data$price), "\n")
+}
+
+plot_price_distribution(flight_data)
+
+#Here, skewness > 1, that's why it should be interesting to log-transform for linear regression 
+#Price can't be equal to 0, so we shouldn't have an issue
+
+## 4.2 Correlation Analysis
+plot_correlation_matrix <- function(data) {
+  # Select only numeric columns
+  numeric_cols <- sapply(data, is.numeric)
+  cor_matrix <- cor(data[, numeric_cols], use = "complete.obs")
+  
+  # Create correlation plot
+  corrplot(cor_matrix, 
+           method = "circle", 
+           type = "upper", 
+           tl.col = "black", 
+           tl.srt = 45,
+           title = "Correlation Matrix of Numerical Variables", 
+           mar = c(0, 0, 1, 0))
+}
+
+plot_correlation_matrix(flight_data)
+
+#Plot Box Plot regarding departure_time, arrival_time and class
+plot_boxplot_arrival_time <- function(data) {
+  ggplot(data, aes(x = arrival_time, y = price, fill = arrival_time)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(title = "Price by Arrival Time", x = "Arrival Time", y = "Price") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+plot_boxplot_class <- function(data) {
+  ggplot(data, aes(x = class, y = price, fill = class)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(title = "Price by Class", x = "Class", y = "Price")
+}
+
+plot_boxplot_departure_time <- function(data) {
+  ggplot(data, aes(x = departure_time, y = price, fill = departure_time)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(title = "Price by Departure Time", x = "Departure Time", y = "Price") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+plot_boxplot_departure_time(flight_data)
+plot_boxplot_class(flight_data)
+plot_boxplot_arrival_time(flight_data)
+
+#Null Hypothesis Testing (Class)
+#Let µ0: Business Class
+#Let µ1: Economy Class
+#Null Hypothesis: H0 => µ0 = µ1
+
+t.test(price ~ class, data = flight_data)
+
+#p-value --> < 2.2e-16, so H0 can be rejected 
+
+#Comparing Night-Flights and Day-Flights | Comparing Stops and Non-Stops
+#Null Hypothesis Testing
+#Let µ0: Day-Flights
+#Let µ1 : Night-flights
+
+flight_data_night_day_vers <- flight_data
+# Add two binary variables (Day/Night) and (Non-stop/stop)
+flight_data_night_day_vers$time_of_day <- ifelse(flight_data$departure_time %in% c("Morning", "Afternoon", "Evening"),
+                                                 "Day", "Night")
+flight_data_night_day_vers$time_of_day <- factor(flight_data_night_day_vers$time_of_day, levels = c("Day", "Night"))
+levels(flight_data_night_day_vers$time_of_day) #Day / "Night"
+t.test(price ~ time_of_day, data = flight_data_night_day_vers, alternative="greater")
+#p_value = 0.002357, so it seems that day flights are cheaper than night flights
+
+with_stop_data <- flight_data %>%
+  filter(stops %in% c("one", "two_or_more"))
+
+long_flights <- with_stop_data %>%
+  filter(duration >= 32, duration <= 40)
+
+table(long_flights$stops)
+
+t.test(price ~ stops, data = long_flights, alternative="less") #Not enough interesting
+#Maybe, just quote it as a try but not answer due to not statically significant
+
+summary(lm(price ~ stops + duration, data = with_stop_data))
+
+#Holding flight duration constant, flights with multiple stops are statistically 
+#significantly cheaper than those with a single stop (−$10,743 on average, p < 0.001), 
+#indicating that this difference is highly unlikely to be due to random chance.
+#However, needs to say that our R-squared is very low, so we can't explain only
+#by this model, but show the impact of a stop or not (at same duration, one stop is 
+#cheaper than two or more)
+
+#Comparing between Airplane airlines (with same duration)
+
+two_airlines <- flight_data %>%
+  filter(airline %in% c("Air_India", "Vistara"))
+
+airlines_similar_duration <- two_airlines %>%
+  filter(duration >= 2, duration <= 3)
+
+table(airlines_similar_duration$airline)
+
+airlines_similar_duration$airline <- factor(airlines_similar_duration$airline, levels = c("Vistara", "Air_India"))
+
+t.test(price ~ airline, data = airlines_similar_duration, alternative = "greater")
+#p-value <- 0.001841
+
+#For comparable durations (between 2 and 3 hours), flights operated by Vistara are 
+#statistically more expensive than those operated by Air India, with an average 
+#price difference of €3,631. This difference is statistically significant (p = 0.0018).
+
+# ----------------------------
+# 5. Baseline Model Development
+# ----------------------------
+## 5.1 Data Preparation for Modeling
+prepare_flight_data <- function(train, test) {
+  # Handle factor levels in training data
+  train$flight <- factor(as.character(train$flight))
+  
+  # Add "Other" level if not present
+  if (!("Other" %in% levels(train$flight))) {
+    levels(train$flight) <- c(levels(train$flight), "Other")
+  }
+  
+  # Prepare test data with matching factor levels
+  test$flight <- as.character(test$flight)
+  allowed_levels <- levels(train$flight)
+  test$flight[!(test$flight %in% allowed_levels)] <- "Other"
+  test$flight <- factor(test$flight, levels = allowed_levels)
+  
+  return(list(train = train, test = test))
+}
+
+prepared_data <- prepare_flight_data(train_data, test_data)
+train_data <- prepared_data$train
+test_data <- prepared_data$test
+
+## 5.2 Linear Regression Model
+# Train model
+lm_model <- lm(price ~ ., data = train_data)
 summary(lm_model)
 
-predictions_lm <- predict(lm_model, newdata = ln_test_data)
-mse_lm <- mean((ln_test_data$price - predictions_lm)^2)
-cat("MSE:", mse_lm, "\n")
+# Make predictions and evaluate
+predictions <- predict(lm_model, newdata = test_data)
+mse <- mean((test_data$price - predictions)^2)
 
-  # Signif. codes:
-# 这行说明了统计显著性的符号表示方法。
-# 
-# ‘***’ 表示 p 值 < 0.001
-# 
-# ‘**’ 表示 0.001 ≤ p 值 < 0.01
-# 
-# ‘*’ 表示 0.01 ≤ p 值 < 0.05
-# 
-# ‘.’ 表示 0.05 ≤ p 值 < 0.1
-# 
-# ‘ ’（空格）表示 p 值 ≥ 0.1
-# 当模型中各个系数后面显示这些符号时，可以直观地看出哪些变量在统计上是显著的。
-# 
-# Residual standard error: 6191 on 208526 degrees of freedom
-# 
-# Residual standard error（残差标准误差）： 表示模型预测值与实际值之间的平均偏差，大约为 6191。
-# 
-# Degrees of freedom（自由度）： 这里是 208526，自由度通常等于样本数减去估计的参数个数（包括截距）。
-# 
-# Multiple R-squared: 0.926, Adjusted R-squared: 0.9255
-# 
-# Multiple R-squared（多重决定系数）： 0.926 表示模型可以解释大约 92.6% 的目标变量（price）的变异性。
-# 
-# Adjusted R-squared（调整后的决定系数）： 考虑了模型中变量个数，0.9255 表示在加入解释变量后仍然有大约 92.55% 的变异性被解释。调整后的 R²更适合用于比较不同数量自变量的模型。
-# 
-# F-statistic: 1650 on 1582 and 208526 DF, p-value: < 2.2e-16
-# 
-# F-statistic（F统计量）： 1650 是检验整个模型（即所有自变量）是否在统计上显著的一个指标。
-# 
-# DF（自由度）： 模型中自变量的个数是 1582（分子自由度），而误差自由度是 208526（分母自由度）。
-# 
-# p-value: 小于 2.2e-16，说明整个模型在统计上非常显著，即至少有一个自变量对目标变量有显著影响。
-# 
-# 总结来说，这段输出告诉我们：模型拟合得比较好（R² 很高），残差的平均误差大约是 6191，整个模型显著性检验的结果非常显著（p 值极小），同时提供了各变量显著性水平的符号说明
+# Print evaluation metrics
+cat("Baseline Model Performance:\n")
+cat("--------------------------\n")
+cat("Mean Squared Error:", mse, "\n")
+cat("Root Mean Squared Error:", sqrt(mse), "\n")
