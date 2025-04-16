@@ -1,6 +1,6 @@
 # Flight Price Analysis and Prediction
 
-This project analyzes flight price data, performs exploratory data analysis (EDA), statistical hypothesis testing, and builds a linear regression model to predict flight prices.
+This project analyzes flight price data, performs exploratory data analysis (EDA), statistical hypothesis testing, and builds a linear regression model to predict flight prices. The code is in the prj.R
 
 ## Requirements
 - R (version 4.0 or higher)
